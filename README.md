@@ -193,69 +193,6 @@ In the `SetUnion` provenance collection, deduplication is by `(source, trigger)`
 If an agent retries with a different timestamp, the existing entry is kept (first-write-wins
 on the timestamp for that `(source, trigger)` pair).
 
-## Implementation Plan
-
-### Phase 1: Project Skeleton
-
-- [ ] Initialize Cargo project with workspace structure
-- [ ] Add dependencies: `lattices`, `tonic`, `prost`, `tokio`, `neo4rs`, `serde`
-- [ ] Define protobuf schema in `proto/tee.proto`
-- [ ] Generate Rust types via `tonic-build`
-
-### Phase 2: Core Lattice Layer
-
-- [ ] Define `CausalGraph` using `MapUnion<BTreeMap<NodeId, NodeLattice>>` where per-node fields are lattice-typed:
-  - `type`: `Conflict<NodeType>` (first-write-wins, conflict = schema error)
-  - `label`: `Conflict<String>` (first-write-wins, conflict = schema error)
-  - `hypothetical`: `Max<bool>` (once false, stays false)
-  - `provenance`: `SetUnion<BTreeSet<Provenance>>` (append-only)
-- [ ] Implement `Node`, `Edge`, `Provenance` types with `Ord`, `Serialize`, `Deserialize`
-- [ ] Implement schema validation (permitted node types, edge types, conflict detection)
-- [ ] Unit tests for merge idempotence, commutativity, conflict detection, tombstone application
-
-### Phase 3: Neo4j Adapter
-
-- [ ] Implement `Neo4jStore` trait with operations:
-  - `merge_nodes(delta)` — transactional read-check-write: conflict detect then MERGE
-  - `merge_edges(delta)` — MERGE on `HypothesisEdge` node + traversal relationship
-  - `create_incident(id)` — register incident ID (O(1), no graph copy)
-  - `merge_node_tombstones(incident_id, node_ids)` — add node tombstones, flag unmatched
-  - `merge_edge_tombstones(incident_id, edge_keys)` — add edge tombstones
-  - `get_live_view(incident_id)` — live nodes + live edges (excluding tombstoned endpoints)
-  - `get_tombstones(incident_id)` — return node and edge tombstone sets
-  - `get_main_graph()` — return the full hypothesis graph
-- [ ] Integration tests against a Neo4j test instance
-
-### Phase 4: gRPC Service
-
-- [ ] Implement `Tee` gRPC service using `tonic`
-- [ ] Wire gRPC handlers to Neo4j adapter
-- [ ] Add request validation and error handling
-- [ ] Health check endpoint (`tonic-health`)
-- [ ] Integration tests: full round-trip (gRPC → lattice merge → Neo4j → read back)
-
-### Phase 5: CMBS Integration
-
-- [ ] Expose `GetTombstones` and `GetLiveView` for CMBS recovery
-- [ ] Verify CMBS can reconstruct state from Tee after restart
-- [ ] Load test: concurrent `MergeTombstones` calls from multiple agents
-
-## Dependencies
-
-```toml
-[dependencies]
-lattices = { version = "0.6", features = ["serde"] }
-tonic = "0.14"
-prost = "0.13"
-prost-types = "0.13"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-neo4rs = "0.8"
-serde = { version = "1", features = ["derive"] }
-
-[build-dependencies]
-tonic-build = "0.14"
-```
-
 ## Neo4j Schema
 
 ### Constraints
