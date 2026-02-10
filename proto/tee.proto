@@ -1,0 +1,148 @@
+syntax = "proto3";
+package tee;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// --- Enums ---
+
+enum NodeType {
+  NODE_TYPE_UNSPECIFIED = 0;
+  NODE_TYPE_SERVICE = 1;
+  NODE_TYPE_DEPENDENCY = 2;
+  NODE_TYPE_INFRASTRUCTURE = 3;
+  NODE_TYPE_MECHANISM = 4;
+}
+
+enum EdgeType {
+  EDGE_TYPE_UNSPECIFIED = 0;
+  EDGE_TYPE_DEPENDS_ON = 1;
+  EDGE_TYPE_PROPAGATES_TO = 2;
+  EDGE_TYPE_MANIFESTS_AS = 3;
+}
+
+// --- Core Data Types ---
+
+message Provenance {
+  string source = 1;                         // who: agent ID or system component
+  google.protobuf.Timestamp timestamp = 2;   // when: informational, not part of identity
+  string trigger = 3;                        // why: what triggered this operation
+}
+
+message Node {
+  string id = 1;
+  NodeType type = 2;
+  string label = 3;
+  bool hypothetical = 4;
+  repeated Provenance provenance = 5;
+}
+
+message Edge {
+  string source = 1;
+  string target = 2;
+  EdgeType type = 3;
+  repeated Provenance provenance = 4;
+}
+
+message CausalGraph {
+  repeated Node nodes = 1;
+  repeated Edge edges = 2;
+}
+
+// --- Request Types ---
+
+message HypothesisDelta {
+  repeated Node nodes = 1;
+  repeated Edge edges = 2;
+}
+
+message CreateIncidentRequest {
+  string incident_id = 1;
+}
+
+message IncidentContextRequest {
+  string incident_id = 1;
+}
+
+message NodeTombstoneRequest {
+  string incident_id = 1;
+  repeated string node_ids = 2;
+  Provenance provenance = 3;
+}
+
+message EdgeTombstoneEntry {
+  string source = 1;
+  string target = 2;
+  EdgeType type = 3;
+}
+
+message EdgeTombstoneRequest {
+  string incident_id = 1;
+  repeated EdgeTombstoneEntry entries = 2;
+  Provenance provenance = 3;
+}
+
+message LiveViewRequest {
+  string incident_id = 1;
+}
+
+message TombstoneRequest {
+  string incident_id = 1;
+}
+
+// --- Response Types ---
+
+message HypothesisMergeResult {
+  repeated string created_ids = 1;       // newly created nodes/edges (first write)
+  repeated string merged_ids = 2;        // already existed (provenance appended)
+  repeated MergeConflict conflicts = 3;  // rejected due to type/label conflict
+}
+
+message MergeConflict {
+  string id = 1;
+  string field = 2;           // "type" or "label"
+  string existing_value = 3;
+  string proposed_value = 4;
+}
+
+message CreateIncidentResult {
+  string incident_id = 1;
+  bool created = 2;           // true = new, false = already existed (idempotent)
+}
+
+message IncidentContext {
+  string incident_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  TombstoneSet tombstones = 3;
+}
+
+message TombstoneMergeResult {
+  repeated string applied_ids = 1;             // newly tombstoned (first write for this incident)
+  repeated string already_tombstoned_ids = 2;  // tombstone already existed (idempotent no-op)
+  repeated string unmatched_ids = 3;           // not in main graph (accepted, flagged for observability)
+}
+
+message TombstoneSet {
+  repeated string node_ids = 1;
+  repeated EdgeTombstoneEntry edge_entries = 2;
+}
+
+// --- Service ---
+
+service Tee {
+  // Join Phase: merge hypothesis delta into the main graph (idempotent)
+  rpc MergeHypothesis(HypothesisDelta) returns (HypothesisMergeResult);
+
+  // Incident Lifecycle
+  rpc CreateIncident(CreateIncidentRequest) returns (CreateIncidentResult);
+  rpc GetIncidentContext(IncidentContextRequest) returns (IncidentContext);
+
+  // Meet Phase: add tombstones for an incident (idempotent)
+  rpc MergeNodeTombstones(NodeTombstoneRequest) returns (TombstoneMergeResult);
+  rpc MergeEdgeTombstones(EdgeTombstoneRequest) returns (TombstoneMergeResult);
+
+  // Read
+  rpc GetLiveView(LiveViewRequest) returns (CausalGraph);
+  rpc GetTombstones(TombstoneRequest) returns (TombstoneSet);
+  rpc GetMainGraph(google.protobuf.Empty) returns (CausalGraph);
+}

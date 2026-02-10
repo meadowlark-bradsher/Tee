@@ -1,0 +1,19 @@
+[package]
+name = "tee"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lattices = { version = "0.6", features = ["serde"] }
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
+prost-types = "0.14"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[build-dependencies]
+tonic-prost-build = "0.14"
